@@ -3,7 +3,6 @@ package org.polyfrost.oneconfig.internal.ui.screens
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VisibilityThreshold
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.VerticalScrollbar
@@ -23,8 +22,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -40,9 +39,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.focusProperties
@@ -54,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -411,7 +414,12 @@ private val ModCardGlowHeight = 50.dp
 
 private val FavoriteStarColor = Color(0xFFFFD700)
 
-private val ModCardSwitchWidth = 30.dp
+private val ModCardToggleDot = 6.dp
+private val ModCardToggleRing = 12.dp
+private val ModCardToggleUnavailable = Color(0xFF4F505B)
+
+// the accent is darkened towards this for the ring, which for the default accent gives the ring of the design
+private val ModCardToggleRingShade = Color(0xFF181600)
 
 /**
  * [hoverHint] faintly shows an empty star on hover, and a card that is not [interactive] lets clicks and scrolling
@@ -426,6 +434,7 @@ fun ModCard(
     interactive: Boolean = true,
 ) {
     val interactionSource = rememberInteractionSource()
+    val footerInteractions = rememberInteractionSource()
     val theme = LocalTheme.current
 
     val toggleRevision = ModToggles.revision
@@ -435,7 +444,7 @@ fun ModCard(
     val footerTextColor by animateColorAsState(
         if (enabled) theme.accentTextColor else theme.textColor.copy(alpha = 0.75f)
     )
-    val glowStrength by animateFloatAsState(if (enabled) 1f else 0f)
+    val glowStrength by animateFloatAsState(if (enabled) 0.5f else 0f)
     val open = {
         val onOpen = mod.onOpen
         when {
@@ -490,6 +499,23 @@ fun ModCard(
                     .fillMaxWidth()
                     .heightIn(min = ModCardFooterHeight)
                     .background(footerColor)
+                    .then(
+                        if (toggle != null && interactive) {
+                            Modifier
+                                .focusProperties { canFocus = false }
+                                .onClick(footerInteractions) {
+                                    if (!enabled && toggle.needsSetup()) {
+                                        open()
+                                    } else {
+                                        toggle.setEnabled(!enabled)
+                                        enabled = toggle.isEnabled()
+                                    }
+                                }
+                                .pointerHoverIcon(PointerIcon.Hand)
+                        } else {
+                            Modifier
+                        },
+                    )
                     .padding(horizontal = 8.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -499,24 +525,8 @@ fun ModCard(
                     fontSize = 16.sp,
                     lineHeight = 16.sp,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                        .padding(horizontal = if (toggle != null) ModCardSwitchWidth + 4.dp else 0.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                if (toggle != null) {
-                    ModCardSwitch(
-                        checked = enabled,
-                        color = footerTextColor,
-                        modifier = Modifier.align(Alignment.CenterEnd),
-                        onCheckedChange = {
-                            if (it && toggle.needsSetup()) {
-                                open()
-                            } else {
-                                toggle.setEnabled(it)
-                                enabled = toggle.isEnabled()
-                            }
-                        },
-                    )
-                }
             }
         }
 
@@ -554,50 +564,41 @@ fun ModCard(
                 }
             )
         }
-
-        FavoriteStar(
-            mod = mod,
-            favorite = favorite,
-            cardInteractions = interactionSource,
-            hoverHint = hoverHint,
-            interactive = interactive,
-            modifier = Modifier.align(Alignment.TopEnd),
-        )
-        HideToggle(
-            mod = mod,
-            cardInteractions = interactionSource,
-            modifier = Modifier.align(Alignment.TopStart),
-        )
-    }
-}
-
-@Composable
-private fun ModCardSwitch(
-    checked: Boolean,
-    color: Color,
-    modifier: Modifier = Modifier,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    val interactionSource = rememberInteractionSource()
-    val hovered by interactionSource.collectIsHoveredAsState()
-    val trackAlpha by animateFloatAsState(if (hovered) 0.45f else 0.3f)
-    val thumbOffset by animateDpAsState(if (checked) ModCardSwitchWidth - 13.dp else 3.dp, animationSpec = spring())
-
-    Box(
-        modifier = modifier
-            .size(ModCardSwitchWidth, 16.dp)
-            .clip(LocalTheme.current.circleShape)
-            .background(color.copy(alpha = trackAlpha))
-            .onClick(interactionSource) { onCheckedChange(!checked) }
-            .pointerHoverIcon(PointerIcon.Hand),
-    ) {
+        Row(Modifier.padding(4.dp)) {
+            FavoriteStar(
+                mod = mod,
+                favorite = favorite,
+                cardInteractions = interactionSource,
+                hoverHint = hoverHint,
+                interactive = interactive,
+            )
+            HideToggle(
+                mod = mod,
+                cardInteractions = interactionSource,
+            )
+        }
         Box(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .offset(x = thumbOffset)
-                .size(10.dp)
-                .background(color, LocalTheme.current.circleShape),
-        )
+            Modifier.align(Alignment.TopEnd).padding(11.dp).size(ModCardToggleRing),
+            contentAlignment = Alignment.Center,
+        ) {
+            val ring = if (toggle != null) lerp(Accent, ModCardToggleRingShade, 0.42f) else ModCardToggleUnavailable.copy(alpha = 0.5f)
+            if (toggle != null) {
+                Box(
+                    Modifier
+                        .requiredSize(ModCardToggleRing + 4.dp)
+                        .blur(3.dp, BlurredEdgeTreatment.Unbounded)
+                        .background(ring.copy(alpha = 0.5f), theme.circleShape)
+                )
+            }
+            val dot = if (toggle != null) Accent else ModCardToggleUnavailable
+            // drawn around one centre, since laying the dot out inside the ring lands it on a pixel boundary off-centre
+            Box(
+                Modifier.fillMaxSize().drawBehind {
+                    drawCircle(ring)
+                    drawCircle(dot, radius = ModCardToggleDot.toPx() / 2f)
+                }
+            )
+        }
     }
 }
 
@@ -627,7 +628,6 @@ private fun FavoriteStar(
 
     Box(
         modifier = modifier
-            .padding(4.dp)
             .size(24.dp)
             .alpha(alpha)
             .then(
@@ -666,7 +666,6 @@ private fun HideToggle(
 
     Box(
         modifier = modifier
-            .padding(4.dp)
             .size(24.dp)
             .alpha(alpha)
             .onClick(interactionSource) { ModHidden.toggle(mod.id) }

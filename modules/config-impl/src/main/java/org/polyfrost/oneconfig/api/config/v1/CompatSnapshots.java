@@ -93,6 +93,12 @@ public final class CompatSnapshots implements ConfigManager.ProfileChangeListene
         liveValueScope = scope == null ? Runnable::run : scope;
     }
 
+    /** Runs {@code action} with the options holding what the user chose, see {@link #setLiveValueScope} */
+    @ApiStatus.Internal
+    public static void withLiveValues(Runnable action) {
+        liveValueScope.accept(action);
+    }
+
     public static Tree register(Tree tree) {
         return INSTANCE.register0(tree);
     }

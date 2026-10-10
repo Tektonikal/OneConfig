@@ -29,7 +29,7 @@ internal object ModGates {
      * @param mask the options to overwrite while the mod is off
      * @param saveKey the name the mod's config library saves the masked config under
      * @param onToggle run after the switch changed for mods that cache what they render
-     * @param unless a class only an unrelated mod sharing the id or an unsupported build has, which is then left alone
+     * @param unless a class only an unrelated mod sharing the id has, which is then left alone
      */
     private class Gate(
         val id: String,
@@ -239,10 +239,6 @@ internal object ModGates {
         Gate("fovchanger"),
         Gate("chatblock"),
         Gate("hymod"),
-        // builds before 2.0 keep their location in a class of their own and are left alone
-        Gate("legacyskyblock", unless = "tomeko.legacyskyblock.utils.HypixelPackets"),
-        Gate("skyblockpv"),
-        Gate("skyblock-item-list"),
         Gate(
             "bobby",
             // it only decides whether to keep chunks around when a world is joined
@@ -251,10 +247,8 @@ internal object ModGates {
         Gate("presencefootsteps"),
         Gate("jade"),
         Gate("iconographic"),
-        Gate("customscoreboard"),
         Gate("viewmodel"),
         Gate("flashback"),
-        Gate("skyblocker"),
         Gate("freelook"),
         Gate(
             "screenshotmessageenhancer",
@@ -324,7 +318,17 @@ internal object ModGates {
 
         ModToggles.addListener { id, enabled ->
             val gate = byId[id] ?: return@addListener
-            if (enabled) gate.mask?.remove() else gate.mask?.apply()
+            if (gate.mask != null) {
+                if (enabled) {
+                    gate.mask.remove()
+                    // saves made while the mask was on were dropped, so what they meant to write goes out now
+                    save(gate, markDirty = true)
+                } else {
+                    // edits still waiting to be written would otherwise be lost behind the mask
+                    save(gate, markDirty = false)
+                    gate.mask.apply()
+                }
+            }
             try {
                 gate.onToggle?.invoke(enabled)
             } catch (t: Throwable) {
@@ -354,6 +358,20 @@ internal object ModGates {
                 read.run()
             } finally {
                 suspended.forEach { it.apply() }
+            }
+        }
+    }
+
+    private fun save(gate: Gate, markDirty: Boolean) {
+        val manager = ConfigManager.active()
+        for (tree in manager.trees().filter { it.id == gate.id || it.id in gate.cards }) {
+            try {
+                if (markDirty && tree.getMetadata<Any>(Backend.CUSTOM_SAVE_TRACKED_METADATA) == true) {
+                    tree.addMetadata(Backend.CUSTOM_SAVE_DIRTY_METADATA, true)
+                }
+                manager.save(tree)
+            } catch (t: Throwable) {
+                LOGGER.warn("Failed to save the config of {}", gate.id, t)
             }
         }
     }

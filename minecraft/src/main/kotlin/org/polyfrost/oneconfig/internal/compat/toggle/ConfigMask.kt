@@ -9,8 +9,10 @@ import org.polyfrost.oneconfig.api.config.v1.ConfigManager
 import org.polyfrost.oneconfig.api.config.v1.Property
 import org.polyfrost.oneconfig.api.config.v1.Tree
 import org.polyfrost.oneconfig.api.config.v1.backend.Backend
+import org.polyfrost.oneconfig.api.config.v1.serialize.ObjectSerializer
 import org.polyfrost.oneconfig.internal.ui.api.HELD_VALUE
 import org.polyfrost.oneconfig.internal.ui.api.HeldValue
+import org.polyfrost.oneconfig.utils.v1.WrappingUtils
 
 /**
  * Switches a mod off by overwriting its options with values that leave the game untouched
@@ -91,7 +93,7 @@ internal class ConfigMask(
             @Suppress("UNCHECKED_CAST")
             val prop = tree.getProp(*name.split('.').toTypedArray()) as? Property<Any?> ?: continue
             try {
-                val original = prop.get()
+                val original = detached(prop.get())
                 prop.setAsSilently(convert(value, prop.type))
                 prop.addMetadata(HELD_VALUE, HeldValue(original))
                 originals += prop to original
@@ -111,6 +113,25 @@ internal class ConfigMask(
             if (tree.getMetadata<Any>(CUSTOM_SAVE) === NO_SAVE) {
                 if (customSave != null) tree.addMetadata(CUSTOM_SAVE, customSave) else tree.removeMetadata(CUSTOM_SAVE)
             }
+        }
+    }
+
+    // an option backed by a field writes into the object it already holds, which would take the user's value with it
+    private fun detached(value: Any?): Any? {
+        val type = value?.javaClass ?: return null
+        if (type.isEnum || WrappingUtils.isSimpleClass(type) || ObjectSerializer.isImmutable(type)) return value
+        return try {
+            when {
+                value is PolyColor -> PolyColor(value.rawArgb, value.chroma, value.chromaSpeed)
+                type.isArray -> java.lang.reflect.Array.getLength(value).let { length ->
+                    java.lang.reflect.Array.newInstance(type.componentType, length).also { System.arraycopy(value, 0, it, 0, length) }
+                }
+                value is List<*> -> ArrayList(value)
+                else -> ObjectSerializer.overwrite(type.getDeclaredConstructor().also { it.isAccessible = true }.newInstance(), value)
+            }
+        } catch (t: Throwable) {
+            LOGGER.warn("Could not copy a {} of {} before masking it", type.simpleName, className, t)
+            value
         }
     }
 
