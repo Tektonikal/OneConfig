@@ -808,22 +808,24 @@ private fun SettingLabel(
 }
 
 @Composable
-fun HudConfigScreen(tree: Tree, initialCategory: String? = null) {
-    val filteredTree = remember(tree) {
-        tree
+fun HudConfigScreen(tree: Tree, searchQuery: String) {
+    val categories = remember(tree) { buildCategories(tree) { !isHudInternal(it) } }
+    var selectedCategory by remember(tree) { mutableStateOf(categories.firstOrNull()) }
+
+    val revision = rememberDisplayRevision(categories)
+    val entries = remember(categories, selectedCategory, searchQuery, revision) {
+        if (searchQuery.isEmpty()) {
+            selectedCategory?.let(::filterHiddenNodes)?.let(::flattenEntries).orEmpty()
+        } else {
+            flattenSearchEntries(filterCategories(categories, searchQuery).mapNotNull(::filterHiddenNodes))
+        }
     }
-    val categories = remember(filteredTree) { buildCategories(filteredTree) { !isHudInternal(it) } }
-    val localSearchQuery = ShellState.searchQuery.trim()
-    var selectedCategory by remember(filteredTree, initialCategory) {
-        mutableStateOf(
-            categories.firstOrNull { it.name.equals(initialCategory, ignoreCase = true) }
-                ?: categories.firstOrNull()
-        )
-    }
+    // the panel's built-in sections may still match so an empty search result here stays silent
+    if (entries.isEmpty() && searchQuery.isNotEmpty()) return
 
     CompositionLocalProvider(LocalOptionWidth provides 220.dp) {
     Column(verticalArrangement = Arrangement.spacedBy(19.dp)) {
-        if (localSearchQuery.isBlank() && categories.size > 1) {
+        if (searchQuery.isEmpty() && categories.size > 1) {
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -839,20 +841,9 @@ fun HudConfigScreen(tree: Tree, initialCategory: String? = null) {
             }
         }
 
-        val revision = rememberDisplayRevision(categories)
-        val entries = remember(categories, selectedCategory, localSearchQuery, revision) {
-            if (localSearchQuery.isBlank()) {
-                selectedCategory?.let(::filterHiddenNodes)?.let(::flattenEntries).orEmpty()
-            } else {
-                flattenSearchEntries(filterCategories(categories, localSearchQuery).mapNotNull(::filterHiddenNodes))
-            }
-        }
-
         if (entries.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                val message = if (localSearchQuery.isBlank()) "No settings available."
-                else "No settings match \"$localSearchQuery\""
-                Text(message, color = LocalTheme.current.textColorSecondary)
+                Text("No settings available.", color = LocalTheme.current.textColorSecondary)
             }
             return@Column
         }

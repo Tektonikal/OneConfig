@@ -2696,6 +2696,8 @@ private fun DesignStudioPanel(
     val theme = LocalTheme.current
     val isLegacy = selectedHud is LegacyHud
     val categories = if (isLegacy) listOf(StudioCategory.Settings) else StudioCategory.entries
+    var searchText by remember { mutableStateOf("") }
+    val query = searchText.trim()
     val subtitle = remember(selectedHud) {
         selectedHud?.let { hud ->
             val name = localizedLabel(hud.title) ?: return@let null
@@ -2729,7 +2731,7 @@ private fun DesignStudioPanel(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     IconButton("close") { onBack() }
-                    SearchBar()
+                    SearchBar(searchText, { searchText = it }, "Search...")
                 }
                 Row(
                     modifier = Modifier
@@ -2755,7 +2757,7 @@ private fun DesignStudioPanel(
                         }
                     }
                 }
-                if (categories.size > 1) {
+                if (categories.size > 1 && query.isEmpty()) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         categories.forEach {
                             Chip(it.title, it == activeCategory, it.icon) { onCategoryChange(it) }
@@ -2773,29 +2775,26 @@ private fun DesignStudioPanel(
                     },
                     modifier = Modifier.fillMaxSize()
                 ) { category ->
-                    when (category) {
-                        StudioCategory.Designer -> {
-                            val panelScrollState = rememberScrollState()
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                Column(
-                                    modifier = Modifier.fillMaxSize()
-                                        .verticalScroll(panelScrollState)
-                                        .padding(end = 16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                                ) {
-                                    Designer(selectedHud)
+                    val panelScrollState = rememberScrollState()
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Column(
+                            modifier = Modifier.fillMaxSize()
+                                .verticalScroll(panelScrollState)
+                                .padding(end = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(22.dp)
+                        ) {
+                            // like the main config screen, a search spans every category rather than only the open one
+                            categories.forEach {
+                                if (query.isNotEmpty() || it == category) when (it) {
+                                    StudioCategory.Designer -> Designer(selectedHud, query)
+                                    StudioCategory.Settings -> Settings(selectedHud, query, onDeleted = onBack)
                                 }
-                                VerticalScrollbar(
-                                    adapter = rememberScrollbarAdapter(panelScrollState),
-                                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-                                )
                             }
                         }
-                        StudioCategory.Settings -> {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                Settings(selectedHud, onDeleted = onBack)
-                            }
-                        }
+                        VerticalScrollbar(
+                            adapter = rememberScrollbarAdapter(panelScrollState),
+                            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                        )
                     }
                 }
             }
@@ -3027,7 +3026,7 @@ private fun HudLibraryPanel(
         ) {
             Text("HUDs", color = theme.textColor, fontSize = 18.sp)
             if (!suggestEvergreenHud) {
-                LibrarySearchBar(searchText, onSearchChange)
+                SearchBar(searchText, onSearchChange, "Search HUDs...")
                 IconButton("close", modifier = Modifier.size(18.dp), onClick = onClose)
             }
         }
@@ -3412,52 +3411,7 @@ private fun ModFilterIcon(iconName: String, selected: Boolean, onClick: () -> Un
 }
 
 @Composable
-fun SearchBar() {
-    var searchText by remember { mutableStateOf("") }
-    val interactionSource = rememberInteractionSource()
-    val isFocused by interactionSource.collectIsFocusedAsState()
-    val theme = LocalTheme.current
-    val borderColor by animateColorAsState(
-        if (isFocused) theme.textColor.copy(.20f) else theme.textColor.copy(.10f)
-    )
-    val iconColor by animateColorAsState(
-        if (isFocused) theme.textColor.copy(0.70f) else theme.textColor.copy(0.50f)
-    )
-
-    BasicTextField(
-        searchText,
-        { searchText = it },
-        modifier = Modifier.trackTextInputFocus(),
-        interactionSource = interactionSource,
-        textStyle = TextStyle(
-            color = iconColor, fontSize = 12.sp,
-        ),
-        cursorBrush = SolidColor(iconColor),
-    ) { innerTextField ->
-        Row(
-            modifier = Modifier.size(181.dp, 32.dp)
-                .border(1.dp, borderColor, theme.buttonShape)
-                .background(theme.componentBackground, theme.buttonShape),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon("search", color = iconColor, modifier = Modifier.padding(start = 8.dp).size(12.dp))
-            Box(modifier = Modifier.weight(1f)) {
-                if (!isFocused && searchText.isEmpty())
-                    Text("Search ...", color = iconColor, fontSize = 12.sp)
-                innerTextField()
-            }
-            if (searchText.isNotEmpty()) {
-                IconButton("close", modifier = Modifier.padding(end = 4.dp).size(16.dp)) {
-                    searchText = ""
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LibrarySearchBar(value: String, onValueChange: (String) -> Unit) {
+private fun SearchBar(value: String, onValueChange: (String) -> Unit, placeholder: String) {
     val interactionSource = rememberInteractionSource()
     val isFocused by interactionSource.collectIsFocusedAsState()
     val theme = LocalTheme.current
@@ -3488,7 +3442,7 @@ private fun LibrarySearchBar(value: String, onValueChange: (String) -> Unit) {
             Icon("search", color = iconColor, modifier = Modifier.padding(start = 8.dp).size(12.dp))
             Box(modifier = Modifier.weight(1f)) {
                 if (!isFocused && value.isEmpty())
-                    Text("Search HUDs...", color = iconColor, fontSize = 12.sp)
+                    Text(placeholder, color = iconColor, fontSize = 12.sp)
                 innerTextField()
             }
             if (value.isNotEmpty()) {
